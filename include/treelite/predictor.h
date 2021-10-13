@@ -108,6 +108,10 @@ class PredFunctionImpl : public PredFunction {
   size_t PredictBatch(const DMatrix* dmat, size_t rbegin, size_t rend, bool pred_margin,
                       PredictorOutputHandle out_pred) const override;
 
+  PredFuncHandle GetHandle() {
+    return handle_;
+  }
+
  private:
   PredFuncHandle handle_;
   int num_feature_;
@@ -231,6 +235,10 @@ class Predictor {
    * \param output_vector Opaque handle to the output vector
    */
   void DeleteOutputVector(PredictorOutputHandle output_vector) const;
+
+  PredFunction* GetPredFunc() {
+    return pred_func_.get();
+  }
 
  private:
   SharedLibrary lib_;
