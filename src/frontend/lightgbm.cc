@@ -289,7 +289,7 @@ inline std::unique_ptr<treelite::Model> ParseStream(std::istream& fi) {
 
   for (const auto& dict : tree_dict) {
     lgb_trees_.emplace_back();
-    LGBTree& tree = lgb_trees_.back();
+    LGBTree<V>& tree = lgb_trees_.back();
 
     auto it = dict.find("num_leaves");
     TREELITE_CHECK(it != dict.end())
