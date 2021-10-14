@@ -424,7 +424,7 @@ class Model:
         return Model(handle)
 
     @classmethod
-    def load(cls, filename, model_format):
+    def load(cls, filename, model_format, val_type="float64"):
         """
         Load a tree ensemble model from a file
 
@@ -453,7 +453,8 @@ class Model:
         model_format = model_format.lower()
         if model_format == 'lightgbm':
             _check_call(_LIB.TreeliteLoadLightGBMModel(c_str(filename),
-                                                       ctypes.byref(handle)))
+                                                       ctypes.byref(handle),
+                                                       c_str(val_type)))
         elif model_format == 'xgboost':
             _check_call(_LIB.TreeliteLoadXGBoostModel(c_str(filename),
                                                       ctypes.byref(handle)))

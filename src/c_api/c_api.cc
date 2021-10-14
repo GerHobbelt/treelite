@@ -113,9 +113,9 @@ int TreeliteCompilerFree(CompilerHandle handle) {
   API_END();
 }
 
-int TreeliteLoadLightGBMModel(const char* filename, ModelHandle* out) {
+int TreeliteLoadLightGBMModel(const char* filename, ModelHandle* out, const char* val_type) {
   API_BEGIN();
-  std::unique_ptr<Model> model = frontend::LoadLightGBMModel(filename);
+  std::unique_ptr<Model> model = frontend::LoadLightGBMModel(filename, std::string(val_type));
   *out = static_cast<ModelHandle>(model.release());
   API_END();
 }

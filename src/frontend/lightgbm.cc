@@ -16,6 +16,7 @@
 
 namespace {
 
+template<typename V=double>
 inline std::unique_ptr<treelite::Model> ParseStream(std::istream& fi);
 
 }  // anonymous namespace
@@ -24,8 +25,10 @@ namespace treelite {
 namespace frontend {
 
 
-std::unique_ptr<treelite::Model> LoadLightGBMModel(const char* filename) {
+std::unique_ptr<treelite::Model> LoadLightGBMModel(const char* filename, std::string val_type="float64") {
   std::ifstream fi(filename, std::ios::in);
+  if (val_type == "float32")
+    return ParseStream<float>(fi);
   return ParseStream(fi);
 }
 
@@ -175,15 +178,16 @@ enum class MissingType : uint8_t {
   kNaN
 };
 
+template<typename V=double>
 struct LGBTree {
   int num_leaves;
   int num_cat;  // number of categorical splits
-  std::vector<double> leaf_value;
+  std::vector<V> leaf_value;
   std::vector<int8_t> decision_type;
   std::vector<uint64_t> cat_boundaries;
   std::vector<uint32_t> cat_threshold;
   std::vector<int> split_feature;
-  std::vector<double> threshold;
+  std::vector<V> threshold;
   std::vector<int> left_child;
   std::vector<int> right_child;
   std::vector<float> split_gain;
@@ -223,8 +227,9 @@ inline std::vector<std::string> LoadText(std::istream& fi) {
   return lines;
 }
 
+template<typename V=double>
 inline std::unique_ptr<treelite::Model> ParseStream(std::istream& fi) {
-  std::vector<LGBTree> lgb_trees_;
+  std::vector<LGBTree<V>> lgb_trees_;
   int max_feature_idx_;
   int num_class_;
   bool average_output_;
@@ -299,7 +304,7 @@ inline std::unique_ptr<treelite::Model> ParseStream(std::istream& fi) {
     TREELITE_CHECK(it != dict.end() && !it->second.empty())
       << "Ill-formed LightGBM model file: need leaf_value";
     tree.leaf_value
-      = TextToArray<double>(it->second, tree.num_leaves);
+      = TextToArray<V>(it->second, tree.num_leaves);
 
     it = dict.find("decision_type");
     if (tree.num_leaves <= 1) {
@@ -340,12 +345,12 @@ inline std::unique_ptr<treelite::Model> ParseStream(std::istream& fi) {
 
     it = dict.find("threshold");
     if (tree.num_leaves <= 1) {
-      tree.threshold = std::vector<double>();
+      tree.threshold = std::vector<V>();
     } else {
       TREELITE_CHECK_GT(tree.num_leaves, 1);
       TREELITE_CHECK(it != dict.end() && !it->second.empty())
         << "Ill-formed LightGBM model file: need threshold";
-      tree.threshold = TextToArray<double>(it->second, tree.num_leaves - 1);
+      tree.threshold = TextToArray<V>(it->second, tree.num_leaves - 1);
     }
 
     it = dict.find("split_gain");
@@ -410,8 +415,9 @@ inline std::unique_ptr<treelite::Model> ParseStream(std::istream& fi) {
   }
 
   /* 2. Export model */
-  std::unique_ptr<treelite::Model> model_ptr = treelite::Model::Create<double, double>();
-  auto* model = dynamic_cast<treelite::ModelImpl<double, double>*>(model_ptr.get());
+  std::unique_ptr<treelite::Model> model_ptr = treelite::Model::Create<V, V>();
+  auto* model = dynamic_cast<treelite::ModelImpl<V, V>*>(model_ptr.get());
+
   model->num_feature = max_feature_idx_ + 1;
   model->average_tree_output = average_output_;
   if (num_class_ > 1) {
@@ -517,7 +523,7 @@ inline std::unique_ptr<treelite::Model> ParseStream(std::istream& fi) {
   // traverse trees
   for (const auto& lgb_tree : lgb_trees_) {
     model->trees.emplace_back();
-    treelite::Tree<double, double>& tree = model->trees.back();
+    treelite::Tree<V, V>& tree = model->trees.back();
     tree.Init();
 
     // assign node ID's so that a breadth-wise traversal would yield
@@ -535,8 +541,8 @@ inline std::unique_ptr<treelite::Model> ParseStream(std::istream& fi) {
       int old_id, new_id;
       std::tie(old_id, new_id) = Q.front(); Q.pop();
       if (old_id < 0) {  // leaf
-        const double leaf_value = lgb_tree.leaf_value[~old_id];
-        tree.SetLeaf(new_id, static_cast<double>(leaf_value));
+        const V leaf_value = lgb_tree.leaf_value[~old_id];
+        tree.SetLeaf(new_id, static_cast<V>(leaf_value));
         if (!lgb_tree.leaf_count.empty()) {
           const int data_count = lgb_tree.leaf_count[~old_id];
           TREELITE_CHECK_GE(data_count, 0);
@@ -567,7 +573,7 @@ inline std::unique_ptr<treelite::Model> ParseStream(std::istream& fi) {
           tree.SetCategoricalSplit(new_id, split_index, default_left, left_categories, false);
         } else {
           // numerical
-          const auto threshold = static_cast<double>(lgb_tree.threshold[old_id]);
+          const auto threshold = static_cast<V>(lgb_tree.threshold[old_id]);
           bool default_left
             = GetDecisionType(lgb_tree.decision_type[old_id], kDefaultLeftMask);
           const treelite::Operator cmp_op = treelite::Operator::kLE;
