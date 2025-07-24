@@ -3,6 +3,9 @@ name: macos-wheel-builder
 on:
   pull_request:
   push:
+    branches:
+      - mainline
+      - 'release_*'
   schedule:
     - cron: "0 7 * * *"  # Run once daily
 
@@ -33,13 +36,12 @@ jobs:
     env:
       CIBW_PLATFORM_ID: ${{ matrix.cibw_platform_id }}
     steps:
-    - uses: actions/checkout@v2
-      with:
-        submodules: 'true'
+    - uses: actions/checkout@v4
     - uses: conda-incubator/setup-miniconda@v3
       with:
         miniforge-variant: Miniforge3
         miniforge-version: latest
+        conda-remove-defaults: "true"
         activate-environment: dev
         environment-file: ops/conda_env/dev.yml
         use-mamba: true
