@@ -274,6 +274,21 @@ class Model:
         )
         return py_str(json_str.value)
 
+    def get_tree_depth(self) -> np.ndarray:
+        """
+        Query the depth of each tree.
+        """
+        depth_array_ptr = ctypes.POINTER(ctypes.c_uint32)()
+        depth_array_len = ctypes.c_size_t()
+        _check_call(
+            _LIB.TreeliteGetTreeDepth(
+                self.handle,
+                ctypes.byref(depth_array_ptr),
+                ctypes.byref(depth_array_len),
+            )
+        )
+        return np.ctypeslib.as_array(depth_array_ptr, shape=(depth_array_len.value,))
+
     def get_header_accessor(self) -> HeaderAccessor:
         """
         Obtain accessor for fields in the header.
@@ -483,7 +498,7 @@ def _numpy2pybuffer(array: np.ndarray) -> _TreelitePyBufferFrame:
         ctypes.pythonapi.PyObject_GetBuffer(
             ctypes.py_object(view),
             ctypes.byref(buffer),
-            ctypes.c_int(0),  # PyBUF_SIMPLE
+            ctypes.c_int(28),  # PyBUF_RECORDS_RO
         )
         != 0
     ):
@@ -540,7 +555,7 @@ class HeaderAccessor:
             return array.tobytes().decode("utf-8")
         return array
 
-    def set_field(self, name: str, value: Union[np.ndarray, str]):
+    def set_field(self, name: str, value: Union[np.ndarray, str]) -> None:
         """
         Set a field
 
@@ -608,7 +623,7 @@ class TreeAccessor:
         )
         return _pybuffer2numpy(obj)
 
-    def set_field(self, name: str, value: np.ndarray):
+    def set_field(self, name: str, value: np.ndarray) -> None:
         """
         Set a field
 
