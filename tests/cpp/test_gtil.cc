@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <experimental/mdspan>
+#include <mdspan>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -215,7 +215,7 @@ TEST(GTIL, InvalidCategoricalInput) {
   std::size_t const n_rows = categorical_column.size();
   std::vector<double> elems(n_rows * 2);
   namespace stdex = std::experimental;
-  using Array2DView = stdex::mdspan<double, stdex::dextents<std::size_t, 2>, stdex::layout_right>;
+  using Array2DView = std::mdspan<double, std::dextents<std::size_t, 2>, std::layout_right>;
   auto dmat = Array2DView(elems.data(), n_rows, 2);
   for (std::size_t i = 0; i < n_rows; ++i) {
     dmat(i, 0) = 0.0;

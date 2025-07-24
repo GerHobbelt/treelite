@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <experimental/mdspan>
+#include <mdspan>
 #include <limits>
 #include <string>
 #include <type_traits>
@@ -27,17 +27,17 @@ namespace treelite::gtil {
 namespace stdex = std::experimental;
 // Multidimensional array views. Use row-major (C) layout
 template <typename ElemT>
-using Array1DView = stdex::mdspan<ElemT, stdex::dextents<std::uint64_t, 1>, stdex::layout_right>;
+using Array1DView = std::mdspan<ElemT, std::dextents<std::uint64_t, 1>, std::layout_right>;
 template <typename ElemT>
-using Array2DView = stdex::mdspan<ElemT, stdex::dextents<std::uint64_t, 2>, stdex::layout_right>;
+using Array2DView = std::mdspan<ElemT, std::dextents<std::uint64_t, 2>, std::layout_right>;
 template <typename ElemT>
-using Array3DView = stdex::mdspan<ElemT, stdex::dextents<std::uint64_t, 3>, stdex::layout_right>;
+using Array3DView = std::mdspan<ElemT, std::dextents<std::uint64_t, 3>, std::layout_right>;
 template <typename ElemT>
 using CArray1DView
-    = stdex::mdspan<ElemT const, stdex::dextents<std::uint64_t, 1>, stdex::layout_right>;
+    = std::mdspan<ElemT const, std::dextents<std::uint64_t, 1>, std::layout_right>;
 template <typename ElemT>
 using CArray2DView
-    = stdex::mdspan<ElemT const, stdex::dextents<std::uint64_t, 2>, stdex::layout_right>;
+    = std::mdspan<ElemT const, std::dextents<std::uint64_t, 2>, std::layout_right>;
 
 template <typename InputT>
 class DenseMatrixAccessor {
@@ -46,7 +46,7 @@ class DenseMatrixAccessor {
       : input_view_(input, num_row, num_feature) {}
 
   CArray1DView<InputT> GetRow(std::uint64_t row_id, int thread_id) {
-    auto row = stdex::submdspan(input_view_, row_id, stdex::full_extent);
+    auto row = std::submdspan(input_view_, row_id, std::full_extent);
     static_assert(std::is_same_v<decltype(row), CArray1DView<InputT>>);
     return row;
   }
@@ -70,12 +70,12 @@ class SparseMatrixAccessor {
 
   // This function can safely be called from multiple threads, as long as thread_id is unique.
   CArray1DView<InputT> GetRow(std::uint64_t row_id, int thread_id) {
-    auto row = stdex::submdspan(dense_row_view_, thread_id, stdex::full_extent);
+    auto row = std::submdspan(dense_row_view_, thread_id, std::full_extent);
     static_assert(std::is_same_v<decltype(row), Array1DView<InputT>>);
 
-    auto data_slice = stdex::submdspan(
+    auto data_slice = std::submdspan(
         data_, std::pair<std::uint64_t, std::uint64_t>{row_ptr_(row_id), row_ptr_(row_id + 1)});
-    auto col_ind_slice = stdex::submdspan(
+    auto col_ind_slice = std::submdspan(
         col_ind_, std::pair<std::uint64_t, std::uint64_t>{row_ptr_(row_id), row_ptr_(row_id + 1)});
     for (std::uint64_t i = 0; i < row.extent(0); ++i) {
       row[i] = std::numeric_limits<InputT>::quiet_NaN();
@@ -315,7 +315,7 @@ void ApplyPostProcessor(Model const& model, InputT* output, std::uint64_t num_ro
   detail::threading_utils::ParallelFor(std::uint64_t(0), num_row, thread_config,
       detail::threading_utils::ParallelSchedule::Static(), [&](std::size_t row_id, int) {
         for (std::int32_t target_id = 0; target_id < model.num_target; ++target_id) {
-          auto row = stdex::submdspan(output_view, row_id, target_id, stdex::full_extent);
+          auto row = std::submdspan(output_view, row_id, target_id, std::full_extent);
           static_assert(std::is_same_v<decltype(row), Array1DView<InputT>>);
           postprocessor_func(model, model.num_class[target_id], row.data_handle());
         }

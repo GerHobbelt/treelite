@@ -6,7 +6,7 @@
  */
 #include <algorithm>
 #include <cstdint>
-#include <experimental/mdspan>
+#include <mdspan>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -28,7 +28,7 @@ namespace detail {
 namespace stdex = std::experimental;
 // Multidimensional array views. Use row-major (C) layout
 template <typename ElemT>
-using Array2DView = stdex::mdspan<ElemT, stdex::dextents<std::uint64_t, 2>, stdex::layout_right>;
+using Array2DView = std::mdspan<ElemT, std::dextents<std::uint64_t, 2>, std::layout_right>;
 
 class RandomForestRegressorMixIn {
  public:
