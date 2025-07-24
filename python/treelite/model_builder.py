@@ -21,7 +21,8 @@ class Metadata:
         Number of features used in the model.
         We assume that all feature indices are between ``0`` and ``num_feature - 1``.
     task_type:
-        Task type
+        Task type. Can be one of ``kBinaryClf``, ``kRegressor``, ``kMultiClf``,
+        ``kLearningToRank``, or ``kIsolationForest``.
     average_tree_output:
         Whether to average outputs of trees
     num_target:
@@ -84,7 +85,8 @@ class PostProcessorFunc:
     Parameters
     ----------
     name:
-        Name of the postprocessor
+        Name of the postprocessor. Consult :py:doc:`/knobs/postprocessor` for the list
+        of available postprocessor functions.
     sigmoid_alpha:
         Scaling parameter for sigmoid function ``sigmoid(x) = 1 / (1 + exp(-alpha * x))``.
         This parameter is applicable only when ``name="sigmoid"`` or ``name="multiclass_ova"``.
