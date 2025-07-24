@@ -17,6 +17,7 @@
 #include <limits>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <variant>
 
 #include "./postprocessor.h"
@@ -37,6 +38,63 @@ using CArray1DView
 template <typename ElemT>
 using CArray2DView
     = stdex::mdspan<ElemT const, stdex::dextents<std::uint64_t, 2>, stdex::layout_right>;
+
+template <typename InputT>
+class DenseMatrixAccessor {
+ public:
+  DenseMatrixAccessor(InputT const* input, std::uint64_t num_row, std::int32_t num_feature)
+      : input_view_(input, num_row, num_feature) {}
+
+  CArray1DView<InputT> GetRow(std::uint64_t row_id, int thread_id) {
+    auto row = stdex::submdspan(input_view_, row_id, stdex::full_extent);
+    static_assert(std::is_same_v<decltype(row), CArray1DView<InputT>>);
+    return row;
+  }
+
+ private:
+  CArray2DView<InputT> input_view_;
+};
+
+template <typename InputT>
+class SparseMatrixAccessor {
+ public:
+  SparseMatrixAccessor(InputT const* data, std::uint64_t const* col_ind,
+      std::uint64_t const* row_ptr, std::uint64_t num_row, std::int32_t num_feature,
+      detail::threading_utils::ThreadConfig const& thread_config)
+      : data_(data, row_ptr[num_row]),
+        col_ind_(col_ind, row_ptr[num_row]),
+        row_ptr_(row_ptr, num_row + 1),
+        dense_row_(thread_config.nthread * num_feature) {
+    dense_row_view_ = Array2DView<InputT>(dense_row_.data(), thread_config.nthread, num_feature);
+  }
+
+  // This function can safely be called from multiple threads, as long as thread_id is unique.
+  CArray1DView<InputT> GetRow(std::uint64_t row_id, int thread_id) {
+    auto row = stdex::submdspan(dense_row_view_, thread_id, stdex::full_extent);
+    static_assert(std::is_same_v<decltype(row), Array1DView<InputT>>);
+
+    auto data_slice = stdex::submdspan(
+        data_, std::pair<std::uint64_t, std::uint64_t>{row_ptr_(row_id), row_ptr_(row_id + 1)});
+    auto col_ind_slice = stdex::submdspan(
+        col_ind_, std::pair<std::uint64_t, std::uint64_t>{row_ptr_(row_id), row_ptr_(row_id + 1)});
+    for (std::uint64_t i = 0; i < row.extent(0); ++i) {
+      row[i] = std::numeric_limits<InputT>::quiet_NaN();
+    }
+    for (std::uint64_t i = 0; i < col_ind_slice.extent(0); ++i) {
+      row[col_ind_slice(i)] = data_slice(i);
+    }
+    return row;
+  }
+
+ private:
+  CArray1DView<InputT> data_;
+  CArray1DView<std::uint64_t> col_ind_;
+  CArray1DView<std::uint64_t> row_ptr_;
+  // Temporary space to convert sparse rows into dense form
+  // Allocate one row per thread
+  std::vector<InputT> dense_row_;
+  Array2DView<InputT> dense_row_view_;
+};
 
 template <typename InputT, typename ThresholdT>
 inline int NextNode(
@@ -125,7 +183,7 @@ void OutputLeafVector(Model const& model, Tree<ThresholdT, LeafOutputT> const& t
     auto leaf_view = Array2DView<LeafOutputT>(leaf_out.data(), model.num_target, max_num_class);
     for (std::int32_t target_id = 0; target_id < model.num_target; ++target_id) {
       for (std::int32_t class_id = 0; class_id < model.num_class[target_id]; ++class_id) {
-        output_view(target_id, row_id, class_id) += leaf_view(target_id, class_id);
+        output_view(row_id, target_id, class_id) += leaf_view(target_id, class_id);
       }
     }
   } else if (model.target_id[tree_id] == -1) {
@@ -135,7 +193,7 @@ void OutputLeafVector(Model const& model, Tree<ThresholdT, LeafOutputT> const& t
     auto leaf_view = Array2DView<LeafOutputT>(leaf_out.data(), model.num_target, 1);
     auto const class_id = model.class_id[tree_id];
     for (std::int32_t target_id = 0; target_id < model.num_target; ++target_id) {
-      output_view(target_id, row_id, class_id) += leaf_view(target_id, 0);
+      output_view(row_id, target_id, class_id) += leaf_view(target_id, 0);
     }
   } else if (model.class_id[tree_id] == -1) {
     std::vector<std::int32_t> const expected_leaf_shape{1, max_num_class};
@@ -144,7 +202,7 @@ void OutputLeafVector(Model const& model, Tree<ThresholdT, LeafOutputT> const& t
     auto leaf_view = Array2DView<LeafOutputT>(leaf_out.data(), 1, max_num_class);
     auto const target_id = model.target_id[tree_id];
     for (std::int32_t class_id = 0; class_id < model.num_class[target_id]; ++class_id) {
-      output_view(target_id, row_id, class_id) += leaf_view(0, class_id);
+      output_view(row_id, target_id, class_id) += leaf_view(0, class_id);
     }
   } else {
     std::vector<std::int32_t> const expected_leaf_shape{1, 1};
@@ -152,7 +210,7 @@ void OutputLeafVector(Model const& model, Tree<ThresholdT, LeafOutputT> const& t
 
     auto const target_id = model.target_id[tree_id];
     auto const class_id = model.class_id[tree_id];
-    output_view(target_id, row_id, class_id) += leaf_out[0];
+    output_view(row_id, target_id, class_id) += leaf_out[0];
   }
 }
 
@@ -166,24 +224,23 @@ void OutputLeafValue(Model const& model, Tree<ThresholdT, LeafOutputT> const& tr
   std::vector<std::int32_t> const expected_leaf_shape{1, 1};
   TREELITE_CHECK(model.leaf_vector_shape.AsVector() == expected_leaf_shape);
 
-  output_view(target_id, row_id, class_id) += tree.LeafValue(leaf_id);
+  output_view(row_id, target_id, class_id) += tree.LeafValue(leaf_id);
 }
 
-template <typename InputT>
-void PredictRaw(Model const& model, InputT const* input, std::uint64_t num_row, InputT* output,
+template <typename InputT, typename MatrixAccessorT>
+void PredictRaw(Model const& model, MatrixAccessorT accessor, std::uint64_t num_row, InputT* output,
     detail::threading_utils::ThreadConfig const& thread_config) {
-  auto input_view = CArray2DView<InputT>(input, num_row, model.num_feature);
   auto max_num_class
       = *std::max_element(model.num_class.Data(), model.num_class.Data() + model.num_target);
-  auto output_view = Array3DView<InputT>(output, model.num_target, num_row, max_num_class);
+  auto output_view = Array3DView<InputT>(output, num_row, model.num_target, max_num_class);
   std::size_t const num_tree = model.GetNumTree();
   std::fill_n(output, output_view.size(), InputT{});  // Fill with 0's
   std::visit(
       [&](auto&& concrete_model) {
         detail::threading_utils::ParallelFor(std::uint64_t(0), num_row, thread_config,
-            detail::threading_utils::ParallelSchedule::Static(), [&](std::uint64_t row_id, int) {
-              auto row = stdex::submdspan(input_view, row_id, stdex::full_extent);
-              static_assert(std::is_same_v<decltype(row), CArray1DView<InputT>>);
+            detail::threading_utils::ParallelSchedule::Static(),
+            [&](std::uint64_t row_id, int thread_id) {
+              auto row = accessor.GetRow(row_id, thread_id);
               for (std::size_t tree_id = 0; tree_id < num_tree; ++tree_id) {
                 auto const& tree = concrete_model.trees[tree_id];
                 int const leaf_id = EvaluateTree(tree, row);
@@ -223,27 +280,27 @@ void PredictRaw(Model const& model, InputT const* input, std::uint64_t num_row, 
         average_factor_view(model.target_id[tree_id], model.class_id[tree_id]) += 1;
       }
     }
-    for (std::int32_t target_id = 0; target_id < model.num_target; ++target_id) {
-      detail::threading_utils::ParallelFor(std::uint64_t(0), num_row, thread_config,
-          detail::threading_utils::ParallelSchedule::Static(), [&](std::uint64_t row_id, int) {
+    detail::threading_utils::ParallelFor(std::uint64_t(0), num_row, thread_config,
+        detail::threading_utils::ParallelSchedule::Static(), [&](std::uint64_t row_id, int) {
+          for (std::int32_t target_id = 0; target_id < model.num_target; ++target_id) {
             for (std::int32_t class_id = 0; class_id < model.num_class[target_id]; ++class_id) {
-              output_view(target_id, row_id, class_id)
+              output_view(row_id, target_id, class_id)
                   /= static_cast<InputT>(average_factor_view(target_id, class_id));
             }
-          });
-    }
+          }
+        });
   }
   // Apply base scores
   auto base_score_view
       = CArray2DView<double>(model.base_scores.Data(), model.num_target, max_num_class);
-  for (std::int32_t target_id = 0; target_id < model.num_target; ++target_id) {
-    detail::threading_utils::ParallelFor(std::uint64_t(0), num_row, thread_config,
-        detail::threading_utils::ParallelSchedule::Static(), [&](std::uint64_t row_id, int) {
+  detail::threading_utils::ParallelFor(std::uint64_t(0), num_row, thread_config,
+      detail::threading_utils::ParallelSchedule::Static(), [&](std::uint64_t row_id, int) {
+        for (std::int32_t target_id = 0; target_id < model.num_target; ++target_id) {
           for (std::int32_t class_id = 0; class_id < model.num_class[target_id]; ++class_id) {
-            output_view(target_id, row_id, class_id) += base_score_view(target_id, class_id);
+            output_view(row_id, target_id, class_id) += base_score_view(target_id, class_id);
           }
-        });
-  }
+        }
+      });
 }
 
 template <typename InputT>
@@ -252,32 +309,30 @@ void ApplyPostProcessor(Model const& model, InputT* output, std::uint64_t num_ro
   auto postprocessor_func = gtil::GetPostProcessorFunc<InputT>(model.postprocessor);
   auto max_num_class
       = *std::max_element(model.num_class.Data(), model.num_class.Data() + model.num_target);
-  auto output_view = Array3DView<InputT>(output, model.num_target, num_row, max_num_class);
+  auto output_view = Array3DView<InputT>(output, num_row, model.num_target, max_num_class);
 
-  for (std::int32_t target_id = 0; target_id < model.num_target; ++target_id) {
-    std::int32_t const num_class = model.num_class[target_id];
-    detail::threading_utils::ParallelFor(std::uint64_t(0), num_row, thread_config,
-        detail::threading_utils::ParallelSchedule::Static(), [&](std::size_t row_id, int) {
-          auto row = stdex::submdspan(output_view, target_id, row_id, stdex::full_extent);
+  detail::threading_utils::ParallelFor(std::uint64_t(0), num_row, thread_config,
+      detail::threading_utils::ParallelSchedule::Static(), [&](std::size_t row_id, int) {
+        for (std::int32_t target_id = 0; target_id < model.num_target; ++target_id) {
+          auto row = stdex::submdspan(output_view, row_id, target_id, stdex::full_extent);
           static_assert(std::is_same_v<decltype(row), Array1DView<InputT>>);
-          postprocessor_func(model, num_class, row.data_handle());
-        });
-  }
+          postprocessor_func(model, model.num_class[target_id], row.data_handle());
+        }
+      });
 }
 
-template <typename InputT>
-void PredictLeaf(Model const& model, InputT const* input, std::uint64_t num_row, InputT* output,
-    detail::threading_utils::ThreadConfig const& thread_config) {
+template <typename InputT, typename MatrixAccessorT>
+void PredictLeaf(Model const& model, MatrixAccessorT accessor, std::uint64_t num_row,
+    InputT* output, detail::threading_utils::ThreadConfig const& thread_config) {
   auto const num_tree = model.GetNumTree();
-  auto input_view = CArray2DView<InputT>(input, num_row, model.num_feature);
   auto output_view = Array2DView<InputT>(output, num_row, num_tree);
   std::visit(
       [&](auto&& concrete_model) {
         std::size_t const num_tree = concrete_model.trees.size();
         detail::threading_utils::ParallelFor(std::uint64_t(0), num_row, thread_config,
-            detail::threading_utils::ParallelSchedule::Static(), [&](std::uint64_t row_id, int) {
-              auto row = stdex::submdspan(input_view, row_id, stdex::full_extent);
-              static_assert(std::is_same_v<decltype(row), CArray1DView<InputT>>);
+            detail::threading_utils::ParallelSchedule::Static(),
+            [&](std::uint64_t row_id, int thread_id) {
+              auto row = accessor.GetRow(row_id, thread_id);
               for (std::size_t tree_id = 0; tree_id < num_tree; ++tree_id) {
                 auto const& tree = concrete_model.trees[tree_id];
                 int const leaf_id = EvaluateTree(tree, row);
@@ -288,10 +343,9 @@ void PredictLeaf(Model const& model, InputT const* input, std::uint64_t num_row,
       model.variant_);
 }
 
-template <typename InputT>
-void PredictScoreByTree(Model const& model, InputT const* input, std::uint64_t num_row,
+template <typename InputT, typename MatrixAccessorT>
+void PredictScoreByTree(Model const& model, MatrixAccessorT accessor, std::uint64_t num_row,
     InputT* output, detail::threading_utils::ThreadConfig const& thread_config) {
-  auto input_view = CArray2DView<InputT>(input, num_row, model.num_feature);
   auto const num_tree = model.GetNumTree();
   auto max_num_class
       = *std::max_element(model.num_class.Data(), model.num_class.Data() + model.num_target);
@@ -302,9 +356,9 @@ void PredictScoreByTree(Model const& model, InputT const* input, std::uint64_t n
       [&](auto&& concrete_model) {
         std::size_t const num_tree = concrete_model.trees.size();
         detail::threading_utils::ParallelFor(std::uint64_t(0), num_row, thread_config,
-            detail::threading_utils::ParallelSchedule::Static(), [&](std::uint64_t row_id, int) {
-              auto row = stdex::submdspan(input_view, row_id, stdex::full_extent);
-              static_assert(std::is_same_v<decltype(row), CArray1DView<InputT>>);
+            detail::threading_utils::ParallelSchedule::Static(),
+            [&](std::uint64_t row_id, int thread_id) {
+              auto row = accessor.GetRow(row_id, thread_id);
               for (std::size_t tree_id = 0; tree_id < num_tree; ++tree_id) {
                 auto const& tree = concrete_model.trees[tree_id];
                 int const leaf_id = EvaluateTree(tree, row);
@@ -322,9 +376,10 @@ void PredictScoreByTree(Model const& model, InputT const* input, std::uint64_t n
       model.variant_);
 }
 
-template <typename InputT>
-void Predict(Model const& model, InputT const* input, std::uint64_t num_row, InputT* output,
-    Configuration const& config) {
+template <typename InputT, typename MatrixAccessorT>
+void PredictImpl(Model const& model, MatrixAccessorT accessor, std::uint64_t num_row,
+    InputT* output, Configuration const& config,
+    detail::threading_utils::ThreadConfig const& thread_config) {
   TypeInfo leaf_output_type = model.GetLeafOutputType();
   TypeInfo input_type = TypeInfoFromType<InputT>();
   if (leaf_output_type != input_type) {
@@ -336,24 +391,45 @@ void Predict(Model const& model, InputT const* input, std::uint64_t num_row, Inp
     TREELITE_LOG(FATAL) << "Incorrect input type passed to GTIL predict(). "
                         << "Expected: " << expected << ", Got: " << got;
   }
-  auto thread_config = detail::threading_utils::ThreadConfig(config.nthread);
   if (config.pred_kind == PredictKind::kPredictDefault) {
-    PredictRaw(model, input, num_row, output, thread_config);
+    PredictRaw(model, accessor, num_row, output, thread_config);
     ApplyPostProcessor(model, output, num_row, config, thread_config);
   } else if (config.pred_kind == PredictKind::kPredictRaw) {
-    PredictRaw(model, input, num_row, output, thread_config);
+    PredictRaw(model, accessor, num_row, output, thread_config);
   } else if (config.pred_kind == PredictKind::kPredictLeafID) {
-    PredictLeaf(model, input, num_row, output, thread_config);
+    PredictLeaf(model, accessor, num_row, output, thread_config);
   } else if (config.pred_kind == PredictKind::kPredictPerTree) {
-    PredictScoreByTree(model, input, num_row, output, thread_config);
+    PredictScoreByTree(model, accessor, num_row, output, thread_config);
   } else {
     TREELITE_LOG(FATAL) << "Not implemented";
   }
+}
+
+template <typename InputT>
+void Predict(Model const& model, InputT const* input, std::uint64_t num_row, InputT* output,
+    Configuration const& config) {
+  auto thread_config = detail::threading_utils::ThreadConfig(config.nthread);
+  auto accessor = DenseMatrixAccessor(input, num_row, model.num_feature);
+  PredictImpl(model, accessor, num_row, output, config, thread_config);
+}
+
+template <typename InputT>
+void PredictSparse(Model const& model, InputT const* data, std::uint64_t const* col_ind,
+    std::uint64_t const* row_ptr, std::uint64_t num_row, InputT* output,
+    Configuration const& config) {
+  auto thread_config = detail::threading_utils::ThreadConfig(config.nthread);
+  auto accessor
+      = SparseMatrixAccessor(data, col_ind, row_ptr, num_row, model.num_feature, thread_config);
+  PredictImpl(model, accessor, num_row, output, config, thread_config);
 }
 
 template void Predict<float>(
     Model const&, float const*, std::uint64_t, float*, Configuration const&);
 template void Predict<double>(
     Model const&, double const*, std::uint64_t, double*, Configuration const&);
+template void PredictSparse<float>(Model const&, float const*, std::uint64_t const*,
+    std::uint64_t const*, std::uint64_t, float*, Configuration const&);
+template void PredictSparse<double>(Model const&, double const*, std::uint64_t const*,
+    std::uint64_t const*, std::uint64_t, double*, Configuration const&);
 
 }  // namespace treelite::gtil

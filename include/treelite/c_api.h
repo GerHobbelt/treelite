@@ -323,6 +323,12 @@ TREELITE_DLL int TreeliteLoadSKLearnGradientBoostingClassifier(int n_iter, int n
  *                          feature. Shape: (n_categorical_features, 8)
  * \param known_cat_bitsets_offset_map Map from an original feature index to the corresponding
  *                                     index in the known_cat_bitsets array. Shape: (n_features,)
+ * \param features_map Mapping to re-order features. This is needed because HistGradientBoosting
+ *                     estimator internally re-orders features using ColumnTransformer so that
+ *                     the categorical features come before the numerical features.
+ * \param categories_map Mapping to transform categorical features. This is needed because
+ *                       HistGradientBoosting estimator embeds an OrdinalEncoder.
+ *                       categories_map[i] represents the mapping for i-th categorical feature.
  * \param base_scores Baseline predictions for outputs. At prediction, margin scores will be
  *                    adjusted by this amount before applying the post-processing (link)
  *                    function. Required shape: (1,)
@@ -333,7 +339,8 @@ TREELITE_DLL int TreeliteLoadSKLearnHistGradientBoostingRegressor(int n_iter, in
     int64_t const* node_count, void const** nodes, int expected_sizeof_node_struct,
     uint32_t n_categorical_splits, uint32_t const** raw_left_cat_bitsets,
     uint32_t const* known_cat_bitsets, uint32_t const* known_cat_bitsets_offset_map,
-    double const* base_scores, TreeliteModelHandle* out);
+    int32_t const* features_map, int64_t const** categories_map, double const* base_scores,
+    TreeliteModelHandle* out);
 
 /*!
  * \brief Load a scikit-learn HistGradientBoostingClassifier model from a collection of arrays.
@@ -354,6 +361,12 @@ TREELITE_DLL int TreeliteLoadSKLearnHistGradientBoostingRegressor(int n_iter, in
  *                          feature. Shape: (n_categorical_features, 8)
  * \param known_cat_bitsets_offset_map Map from an original feature index to the corresponding
  *                                     index in the known_cat_bitsets array. Shape: (n_features,)
+ * \param features_map Mapping to re-order features. This is needed because HistGradientBoosting
+ *                     estimator internally re-orders features using ColumnTransformer so that
+ *                     the categorical features come before the numerical features.
+ * \param categories_map Mapping to transform categorical features. This is needed because
+ *                       HistGradientBoosting estimator embeds an OrdinalEncoder.
+ *                       categories_map[i] represents the mapping for i-th categorical feature.
  * \param base_scores Baseline predictions for outputs. At prediction, margin scores will be
  *                    adjusted by this amount before applying the post-processing (link)
  *                    function. Required shape: (1,) for binary classification;
@@ -365,7 +378,8 @@ TREELITE_DLL int TreeliteLoadSKLearnHistGradientBoostingClassifier(int n_iter, i
     int n_classes, int64_t const* node_count, void const** nodes, int expected_sizeof_node_struct,
     uint32_t n_categorical_splits, uint32_t const** raw_left_cat_bitsets,
     uint32_t const* known_cat_bitsets, uint32_t const* known_cat_bitsets_offset_map,
-    double const* base_scores, TreeliteModelHandle* out);
+    int32_t const* features_map, int64_t const** categories_map, double const* base_scores,
+    TreeliteModelHandle* out);
 /*! \} */
 
 /*!
@@ -674,7 +688,7 @@ TREELITE_DLL int TreeliteGTILParseConfig(char const* config_json, TreeliteGTILCo
 TREELITE_DLL int TreeliteGTILDeleteConfig(TreeliteGTILConfigHandle handle);
 
 /*!
- * \brief Given a batch of data rows, query the necessary shape of array to hold predictions for all
+ * \brief Given a data matrix, query the necessary shape of array to hold predictions for all
  *        data points.
  * \param model Treelite Model object
  * \param num_row Number of rows in the input
@@ -690,6 +704,7 @@ TREELITE_DLL int TreeliteGTILGetOutputShape(TreeliteModelHandle model, uint64_t 
  * \brief Predict with a 2D dense array
  * \param model Treelite Model object
  * \param input The 2D data array, laid out in row-major layout
+ * \param input_type Data type of the data matrix
  * \param num_row Number of rows in the data matrix.
  * \param output Pointer to buffer to store the output. Call \ref TreeliteGTILGetOutputShape to get
  *               the amount of buffer you should allocate for this parameter.
@@ -698,6 +713,27 @@ TREELITE_DLL int TreeliteGTILGetOutputShape(TreeliteModelHandle model, uint64_t 
  */
 TREELITE_DLL int TreeliteGTILPredict(TreeliteModelHandle model, void const* input,
     char const* input_type, uint64_t num_row, void* output, TreeliteGTILConfigHandle config);
+
+/*!
+ * \brief Predict with sparse data with CSR (compressed sparse row) layout.
+ *
+ * In the CSR layout, data[row_ptr[i]:row_ptr[i+1]] store the nonzero entries of row i, and
+ * col_ind[row_ptr[i]:row_ptr[i+1]] stores the corresponding column indices.
+ *
+ * \param model Treelite Model object
+ * \param data Nonzero elements in the data matrix
+ * \param input_type Data type of the data matrix
+ * \param col_ind Feature indices. col_ind[i] indicates the feature index associated with data[i].
+ * \param row_ptr Pointer to row headers. Length is [num_row] + 1.
+ * \param num_row Number of rows in the data matrix.
+ * \param output Pointer to buffer to store the output. Call \ref GetOutputShape to get
+ *               the amount of buffer you should allocate for this parameter.
+ * \param config Configuration of GTIL predictor. Set this by calling \ref TreeliteGTILParseConfig.
+ * \return 0 for success; -1 for failure
+ */
+TREELITE_DLL int TreeliteGTILPredictSparse(TreeliteModelHandle model, void const* data,
+    char const* input_type, uint64_t const* col_ind, uint64_t const* row_ptr, uint64_t num_row,
+    void* output, TreeliteGTILConfigHandle config);
 
 /*! \} */
 

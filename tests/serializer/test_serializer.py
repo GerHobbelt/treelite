@@ -1,4 +1,5 @@
 """Test for serialization, via buffer protocol"""
+
 import ctypes
 from typing import List
 
@@ -58,7 +59,7 @@ def test_serialize_as_buffer(clazz):
         params["init"] = "zero"
     clf = clazz(**params)
     clf.fit(X, y)
-    expected_prob = clf.predict_proba(X)
+    expected_prob = clf.predict_proba(X).reshape((X.shape[0], 1, -1))
 
     # Prediction should be correct after a round-trip
     tl_model = treelite.sklearn.import_model(clf)

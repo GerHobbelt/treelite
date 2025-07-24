@@ -1,4 +1,5 @@
 """Script to test backward compatibility of serializer"""
+
 import argparse
 import pickle
 
@@ -36,7 +37,7 @@ def load(args):
     with open(args.model_pickle_path, "rb") as f:
         clf = pickle.load(f)
     tl_model = treelite.Model.deserialize(args.checkpoint_path)
-    expected_prob = clf.predict_proba(X)
+    expected_prob = clf.predict_proba(X).reshape((X.shape[0], 1, -1))
     out_prob = treelite.gtil.predict(tl_model, X)
     np.testing.assert_almost_equal(out_prob, expected_prob, decimal=5)
     print("Test passed!")
