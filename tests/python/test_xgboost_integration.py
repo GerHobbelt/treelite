@@ -6,11 +6,20 @@ import pathlib
 
 import numpy as np
 import pytest
-from hypothesis import given, settings
-from hypothesis.strategies import data as hypothesis_callback
-from hypothesis.strategies import integers, just, lists, sampled_from
 
 import treelite
+
+try:
+    from hypothesis import given, settings
+    from hypothesis.strategies import data as hypothesis_callback
+    from hypothesis.strategies import integers, just, lists, sampled_from
+except ImportError:
+    pytest.skip("hypothesis not installed; skipping", allow_module_level=True)
+
+try:
+    import xgboost as xgb
+except ImportError:
+    pytest.skip("XGBoost not installed; skipping", allow_module_level=True)
 
 from .hypothesis_util import (
     standard_classification_datasets,
@@ -19,12 +28,6 @@ from .hypothesis_util import (
     standard_settings,
 )
 from .util import TemporaryDirectory, to_categorical
-
-try:
-    import xgboost as xgb
-except ImportError:
-    # skip this test suite if XGBoost is not installed
-    pytest.skip("XGBoost not installed; skipping", allow_module_level=True)
 
 
 def generate_data_for_squared_log_error(n_targets: int = 1):
@@ -147,7 +150,7 @@ def test_xgb_multiclass_classifier(
     callback,
 ):
     # pylint: disable=too-many-locals
-    """Test XGBoost with Iris data (multi-class classification)"""
+    """Test XGBoost with multi-class classification problem"""
     X, y = dataset
     if use_categorical:
         n_categorical = callback.draw(integers(min_value=1, max_value=X.shape[1]))
@@ -430,7 +433,7 @@ def test_xgb_multi_target_binary_classifier(
     in_memory,
     callback,
 ):
-    """Test XGBoost with multi-target classification problem"""
+    """Test XGBoost with multi-target binary classification problem"""
     X, y = dataset
     if use_categorical:
         n_categorical = callback.draw(integers(min_value=1, max_value=X.shape[1]))
@@ -503,7 +506,7 @@ def test_xgb_multi_target_regressor(
     callback,
 ):
     # pylint: disable=too-many-locals
-    """Test XGBoost with regression data"""
+    """Test XGBoost with multi-target regression problem"""
 
     if objective == "reg:squaredlogerror":
         X, y = generate_data_for_squared_log_error(n_targets=n_targets)
