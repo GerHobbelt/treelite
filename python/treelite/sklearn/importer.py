@@ -3,7 +3,6 @@
 import ctypes
 
 import numpy as np
-from sklearn.dummy import DummyClassifier, DummyRegressor
 
 from ..core import _LIB, TreeliteError, _check_call
 from ..frontend import Model
@@ -102,13 +101,14 @@ def import_model(sklearn_model):
       import treelite.sklearn
       model = treelite.sklearn.import_model(clf)
 
-    Notes
-    -----
+    Note
+    ----
     This function does not yet support categorical splits in HistGradientBoostingRegressor and
     HistGradientBoostingClassifier. If you are using either estimator types, make sure that all
     test nodes have numerical test conditions.
     """
     try:
+        from sklearn.dummy import DummyClassifier, DummyRegressor
         from sklearn.ensemble import ExtraTreesClassifier as ExtraTreesC
         from sklearn.ensemble import ExtraTreesRegressor as ExtraTreesR
         from sklearn.ensemble import GradientBoostingClassifier as GradientBoostingC
@@ -295,8 +295,8 @@ def import_model(sklearn_model):
                 raise NotImplementedError("Custom init estimator not supported")
             # pylint: disable=W0212
             base_scores = np.array(
-                sklearn_model._loss.get_init_raw_predictions(
-                    np.zeros((1, sklearn_model.n_features_in_)), sklearn_model.init_
+                sklearn_model._raw_predict_init(
+                    np.zeros((1, sklearn_model.n_features_in_))
                 ),
                 dtype=np.float64,
             )

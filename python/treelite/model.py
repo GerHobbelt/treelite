@@ -81,14 +81,17 @@ class Model:
         ----------
         model_objs :
             List of :py:class:`Model` objects
+
         Returns
         -------
         model : :py:class:`Model` object
             Concatenated model
+
         Example
         -------
         .. code-block:: python
-           concatenated_model = Model.concatenate([model1, model2, model3])
+
+           concatenated_model = treelite.Model.concatenate([model1, model2, model3])
         """
         concatenated_model_handle = ctypes.c_void_p()
         model_obj_handles = []
@@ -110,8 +113,8 @@ class Model:
         cls, filename: str, model_format: str, allow_unknown_field: bool = False
     ) -> Model:
         """
-        Deprecated. Please use \ref ~treelite.frontend.load_xgboost_model instead.
-        Load a tree ensemble model from a file
+        Deprecated; please use :py:meth:`~treelite.frontend.load_xgboost_model` instead.
+        Load a tree ensemble model from a file.
 
         Parameters
         ----------
@@ -157,8 +160,8 @@ class Model:
     @classmethod
     def from_xgboost(cls, booster: Any) -> Model:
         """
-        Deprecated. Please use \ref ~treelite.frontend.from_xgboost instead.
-        Load a tree ensemble model from an XGBoost Booster object
+        Deprecated; please use :py:meth:`~treelite.frontend.from_xgboost` instead.
+        Load a tree ensemble model from an XGBoost Booster object.
 
         Parameters
         ----------
@@ -187,8 +190,8 @@ class Model:
         allow_unknown_field: bool = False,
     ) -> Model:
         """
-        Deprecated. Please use \ref ~treelite.frontend.from_xgboost_json instead.
-        Load a tree ensemble model from a string containing XGBoost JSON
+        Deprecated; please use :py:meth:`~treelite.frontend.from_xgboost_json` instead.
+        Load a tree ensemble model from a string containing XGBoost JSON.
 
         Parameters
         ----------
@@ -218,8 +221,8 @@ class Model:
     @classmethod
     def from_lightgbm(cls, booster):
         """
-        Deprecated. Please use \ref ~treelite.frontend.from_lightgbm instead.
-        Load a tree ensemble model from a LightGBM Booster object
+        Deprecated; please use :py:meth:`~treelite.frontend.from_lightgbm` instead.
+        Load a tree ensemble model from a LightGBM Booster object.
 
         Parameters
         ----------
